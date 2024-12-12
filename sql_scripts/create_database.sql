@@ -2,7 +2,6 @@ USE electricity_provider;
 
 -- Disable foreign key checks to prevent errors when dropping tables
 SET FOREIGN_KEY_CHECKS = 0;
-
 -- Drop tables if they already exist
 DROP TABLE IF EXISTS client_data;
 DROP TABLE IF EXISTS price_data;
@@ -40,8 +39,8 @@ CREATE TABLE `client_data` (
 );
 
 CREATE TABLE `price_data` (
-    `price_date` DATE NOT NULL PRIMARY KEY,
     `id` CHAR(32) NOT NULL,
+    `price_date` DATE NOT NULL PRIMARY KEY,
     `price_off_peak_variable` FLOAT NULL,
     `price_peak_variable` FLOAT NULL,
     `price_mid_peak_variable` FLOAT NULL,
