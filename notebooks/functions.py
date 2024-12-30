@@ -1,8 +1,8 @@
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from scipy.stats import gaussian_kde
 import pandas as pd
+from scipy.stats import gaussian_kde
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
@@ -10,28 +10,115 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, make_
 from sklearn.model_selection import cross_val_score
 import optuna
 import pickle
+
+def load_data(path_to_file):
     
+    """
+    Load a csv file into a dataframe and display a brief overview of the first 5 rows.
+    """
+    
+    df = pd.read_csv(path_to_file)
+
+    return df
+
+def clean_datatype(df, float_columns = None, int_columns = None, str_columns = None, date_columns = None, bool_columns = None):
+    
+    """
+    Converts specified columns in the dataframe to the desired data types. 
+    
+    Requirement: 
+    - No missing values
+    
+    Parameters:
+    - float_columns: List of column names to convert to float
+    - int_columns: List of column names to convert to int
+    - str_columns: List of column names to convert to string
+    - date_columns: List of column names to convert to datetime
+    - bool_columns: List of column names containing boolean-like strings ('t', 'true', 'f', 'false') to convert to int
+    
+    Returns:
+    - Dataframe with updated column types
+    """
+
+    # Default empty lists if no list is provided
+    int_columns = int_columns or []
+    str_columns = str_columns or []
+    date_columns = date_columns or []
+    bool_columns = bool_columns or []
+    
+    if float_columns:
+        for col in float_columns:
+            df[col] = df[col].astype(float)
+
+    if int_columns:
+        for col in int_columns:
+            df[col] = df[col].astype(int)
+    
+    if str_columns:
+        for col in str_columns:
+            df[col] = df[col].astype(str)
+    
+    if date_columns:
+        for col in date_columns:
+            df[col] = pd.to_datetime(df[col]) 
+            # Adjust the datetime conversion here if the format looks different
+    
+    if bool_columns:
+        # Convert true and false to integer
+        for col in bool_columns:
+            df[col] = df[col].apply(lambda x: 1 if str(x).lower() in ['t', 'true'] else 0)
+
+    return df
+
+def clean_channel_sales(df):
+
+    """
+    Converts unconvenient sales channel names to integer dummies with respect to their frequency
+    """
+
+    # Remove rows belonging to channels with value counts below 20 can be removed because they don't have much impact on the final model
+    valid_channels = df.channel_sales.value_counts()[df.channel_sales.value_counts() > 20].index
+    df = df[df.channel_sales.isin(valid_channels)]
+
+    # Rename remaining channels for simplicity according to their rank in frequency
+    frequency_map = df.channel_sales.value_counts().rank(method='dense', ascending=False).astype(int) - 1
+    df.loc[:, 'channel_sales'] = df.channel_sales.map(frequency_map)
+                                                            
+    return df
+
 def save_to_pickle(obj, file_path):
+    """
+    Save an object (scaler or model) in a pickle file.
+    """
     with open(file_path, 'wb') as file:
         pickle.dump(obj, file)
 
 def load_from_pickle(file_path):
+    """
+    Load an object (scaler or model) in a pickle file.
+    """
     with open(file_path, 'rb') as file:
         return pickle.load(file)
 
 def plot_categorical(df, categorical_column):
     
     """
-    Plots an interactive distribution of churn across different categories in a categorical column.
+    Plots the churn and no churn distribution of a categorical column in a stacked bar plot normalized to 100%.
+    
     Parameters:
     - df: DataFrame containing the data
     - categorical_column: The categorical column to plot
     """
     churn_color = '#10b38f'
     no_churn_color = '#84aaff'
-       
-    churn_counts = df.groupby([categorical_column, 'churn']).size().reset_index(name='count')
+    
+    # Creates a dataframe with three columns: the categorical_column, churn, and the corresponding count of occurrences.
+    churn_counts = df.groupby([categorical_column, 'churn']).size().reset_index(name = 'count')
+
+    # Calculates the percentage of each churn category within each group of the categorical_column
     churn_counts['percentage'] = churn_counts.groupby(categorical_column)['count'].transform(lambda x: x / x.sum() * 100)
+
+    # Maps the numeric values in the churn column (e.g., 1 and 0) to descriptive labels ('churn' and 'no churn').
     churn_counts['churn'] = churn_counts['churn'].map({1: 'churn', 0: 'no churn'})
     
     fig = px.bar(churn_counts, 
@@ -55,7 +142,9 @@ def plot_categorical(df, categorical_column):
 def plot_numerical(df, numerical_column, bins):
     
     """
-    Plots stacked histograms normalized to 1 for churn and no churn distributions in a numerical column.
+    Plots the churn and no churn distribution of a numerical column in a stacked histogram normalized to 100%.
+
+    Parameters:
     - df: DataFrame containing the data
     - numerical_column: The numerical column to plot
     - bins: Number of bins for the histograms
@@ -69,8 +158,8 @@ def plot_numerical(df, numerical_column, bins):
     no_churn_data = df[df['churn'] == 0][numerical_column].dropna()
     
     # Compute histograms
-    hist_churn, bin_edges = np.histogram(churn_data, bins = bins, density=False)
-    hist_no_churn, _ = np.histogram(no_churn_data, bins = bin_edges, density=False)
+    hist_churn, bin_edges = np.histogram(churn_data, bins = bins, density = False)
+    hist_no_churn, _ = np.histogram(no_churn_data, bins = bin_edges, density = False)
     
     # Normalize to percentage
     total_counts = hist_churn + hist_no_churn
@@ -80,12 +169,10 @@ def plot_numerical(df, numerical_column, bins):
 
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-    # Create the plot
     fig = go.Figure()
     fig.add_trace(go.Bar(x = bin_centers, y = hist_no_churn_normalized, name = "no churn", marker_color = no_churn_color))
     fig.add_trace(go.Bar(x = bin_centers, y = hist_churn_normalized, name = "churn", marker_color = churn_color))
     
-    # Adjust layout
     fig.update_layout(xaxis_title = numerical_column, 
                     yaxis_title = "Percentage (%)",
                     title = 'Histogram',
@@ -102,11 +189,14 @@ def plot_numerical(df, numerical_column, bins):
 def plot_kde(df, numerical_column, max, min = 0):
     
     """
-    Plots overlaid KDE functions for churn and no churn distributions in a numerical column.
+    Plots overlaid KDE functions for churn and no churn distributions of a numerical column.
+
+    Parameters:
     - df: DataFrame containing the data
     - numerical_column: The numerical column to plot
-    - max: 
+    - max: Maximum value shown on x axis
     """
+
     churn_color = '#10b38f'
     no_churn_color = '#84aaff'
 
@@ -124,12 +214,10 @@ def plot_kde(df, numerical_column, max, min = 0):
     no_churn_x = np.linspace(min, max, 1000)
     no_churn_y = no_churn_kde(no_churn_x)
     
-    # Create the plot
     fig = go.Figure()
     fig.add_trace(go.Scatter(x = churn_x, y = churn_y, mode = 'lines', name = 'churn', line=dict(color=churn_color, width=2)))
     fig.add_trace(go.Scatter(x = no_churn_x, y = no_churn_y, mode = 'lines', name = 'no churn', line = dict(color=no_churn_color, width=2)))
     
-    # Adjust layout
     fig.update_layout(xaxis_title = numerical_column, 
                       yaxis_title = "Density", 
                       title = 'KDE Plot', 
@@ -142,6 +230,7 @@ def plot_kde(df, numerical_column, max, min = 0):
 
 
 def dummies(df, dummy_columns):
+    
     """
     Creates dummies for categorical columns in the dataframe
     
@@ -152,6 +241,7 @@ def dummies(df, dummy_columns):
     Return:
     - The modified dataframe.
     """
+
     df = df.copy()
 
     for item in dummy_columns:
@@ -168,6 +258,7 @@ def dummies(df, dummy_columns):
     return df
 
 def prepare_data(df, drop_columns, target_column, test_size = 0.2, random_state = 0):
+    
     """
     Splits the dataset into train and test sets and scales the features with the Standard Scaler.
     
@@ -207,6 +298,7 @@ def prepare_data(df, drop_columns, target_column, test_size = 0.2, random_state 
             y_train, y_test, scaler)
 
 def train_random_forest(X_train, y_train, n_estimators = 100, max_depth = 20, min_samples_split = 2, min_samples_leaf = 1):
+    
     """
     Trains a Random Forest classifier.
     
@@ -219,10 +311,14 @@ def train_random_forest(X_train, y_train, n_estimators = 100, max_depth = 20, mi
     Returns:
     - Trained RandomForestClassifier model.
     """
-    # Creates an instance of the random forest classifier
-    model = RandomForestClassifier(n_estimators = n_estimators, max_depth = max_depth, 
-                                   min_samples_split = min_samples_split, min_samples_leaf = min_samples_leaf,
-                                   class_weight = 'balanced', random_state = 0)
+
+    # Creates an instance of the random forest classifier with balanced class weights
+    model = RandomForestClassifier(n_estimators = n_estimators, 
+                                   max_depth = max_depth,
+                                   class_weight = 'balanced', 
+                                   min_samples_split = min_samples_split,
+                                   min_samples_leaf = min_samples_leaf,
+                                   random_state = 0)
 
     # Trains the classifier with the train data
     model.fit(X_train, y_train)
@@ -249,12 +345,12 @@ def evaluate_model(model, X_test, y_test):
                 round(precision_score(y_test, y_pred, average="binary"),2),
                 round(accuracy_score(y_test, y_pred),2)]
 
-    # Create a DataFrame for plotting
     scores_df = pd.DataFrame({"Metric": metrics, "Value": scores})
 
-    # Create the Plotly bar chart
     fig = px.bar(scores_df, y = 'Metric', x = 'Value', color = metrics, orientation='h', text = 'Value', title = 'Performance Metrics', height = 200, width = 500)
+    
     fig.update_traces(marker_color='#84aaff', texttemplate='%{x:.0%}',)
+    
     fig.update_layout(showlegend=False, 
                       margin = dict(t = 40, b = 30), 
                       xaxis_tickformat='.0%', 
@@ -303,16 +399,18 @@ def train_random_forest_tuned(X_train, y_train, n_trials = 50, cv = 5):
         min_samples_leaf = trial.suggest_int('min_samples_leaf', 1, 3)
 
         # Evaluates the model using 5-fold cross-validation with recall as the scoring metric.
-        model = RandomForestClassifier(n_estimators = n_estimators, max_depth = max_depth,
-                                    min_samples_split = min_samples_split, min_samples_leaf = min_samples_leaf,
-                                    class_weight = 'balanced', # 10% churn definetely requires to balance the datasets
-                                    random_state = 0)
+        model = RandomForestClassifier(n_estimators = n_estimators, 
+                                        max_depth = max_depth,
+                                        min_samples_split = min_samples_split, 
+                                        min_samples_leaf = min_samples_leaf,
+                                        class_weight = 'balanced',
+                                        random_state = 0)
 
         # Define recall scorer to treat the low recall
         recall_scorer = make_scorer(recall_score)
 
         # Evaluate using cross validation and parallel computation (n_jobs = -1)
-        # Compute the mean of all recall scores finally
+        # Finally compute the mean of all recall scores
         score = cross_val_score(model, X_train, y_train, cv = cv, scoring = recall_scorer, n_jobs = - 1).mean()
 
         return score
@@ -325,10 +423,12 @@ def train_random_forest_tuned(X_train, y_train, n_trials = 50, cv = 5):
     tuned_params = study.best_params
     print('The best parameters are:', tuned_params)
     
-    tuned_model = RandomForestClassifier(
-        n_estimators = tuned_params['n_estimators'], max_depth = tuned_params['max_depth'],
-        min_samples_split = tuned_params['min_samples_split'], min_samples_leaf = tuned_params['min_samples_leaf'],
-        class_weight = 'balanced', random_state=0)
+    tuned_model = RandomForestClassifier(n_estimators = tuned_params['n_estimators'], 
+                                        max_depth = tuned_params['max_depth'],
+                                        min_samples_split = tuned_params['min_samples_split'], 
+                                        min_samples_leaf = tuned_params['min_samples_leaf'],
+                                        class_weight = 'balanced', 
+                                        random_state=0)
     
     # Trains the model with the best hyperparameters
     tuned_model.fit(X_train, y_train)
@@ -337,14 +437,29 @@ def train_random_forest_tuned(X_train, y_train, n_trials = 50, cv = 5):
 
 def plot_importance(model, X_train):
 
+    """
+    Plot feature importances of the model.
+
+    Paramters: 
+    - model: model object to plot
+    - X_train: train set
+    """
+
     importances = np.round(model.feature_importances_ / model.feature_importances_.sum(), 4)
     feature_importances = pd.DataFrame({
     'features': X_train.columns,
     'importance': importances}).sort_values(by='importance', ascending=True).reset_index()
 
-    fig = px.bar(feature_importances, x = 'importance', y = 'features', orientation='h', height = 650,
-             labels={'importance': 'Importance', 'features': 'Feature'}, title = 'Feature Importance')
+    fig = px.bar(feature_importances, 
+                x = 'importance', 
+                y = 'features', 
+                orientation='h', 
+                height = 650,
+                labels={'importance': 'Importance', 'features': 'Feature'}, 
+                title = 'Feature Importance')
+    
     fig.update_traces(marker_color='#10b38f')
+    
     fig.update_layout(margin = dict(t = 40, b = 30),
                       plot_bgcolor='rgba(0,0,0,0)',
                       paper_bgcolor='rgba(0,0,0,0)')
@@ -378,7 +493,7 @@ def pricing_strategies():
                 connection fees or base service charges.
             
             For this churn analysis, fixed prices are omitted because customers are more likely to react to changes in variable costs, 
-                which fluctuate with market conditions and ultimately reflect their consumption patterns.
+            which fluctuate with market conditions and ultimately reflect their consumption patterns.
             ''')
 
 def price_sensitivity():
@@ -455,13 +570,20 @@ def explain_forest():
 
 def explain_hyperparameters():
     return ('''
-            - **Number of Trees in the Forest:** Too few trees might underfit the data, while too many trees can lead to unnecessary computation (Default = 100).
-            - **Maximum Tree Depth:** Determines how much the model learns from the data. Deeper trees can capture more complex 
-                patterns but are prone to overfitting. Per default all nodes are expanded until all leaves are pure or contain less than the minimum required samples of a splits.
-            - **Minimum Samples of a Split:** Controls if an internal node can be split given the remaining number of samples. 
-                Larger values prevent overly deep trees and reduce overfitting (Default = 2).
-            - **Minimum Samples of a Leaf:** Ensures that leaf nodes have a minimum number of samples. 
-                 This prevents the model from being overly sensitive to individual data points and therefore smooth decision boundaries (Default = 1).
+            - **Number of Trees in the Forest:** 
+            Too few trees might underfit the data, while too many trees can lead to unnecessary computation (Default = 100).
+            
+            - **Maximum Tree Depth:** 
+            Determines how much the model learns from the data. Deeper trees can capture more complex patterns but are prone to overfitting. 
+            Per default all nodes are expanded until all leaves are pure or contain less than the minimum required samples of a splits.
+            
+            - **Minimum Samples of a Split:** 
+            Controls if an internal node can be split given the remaining number of samples. 
+            Larger values prevent overly deep trees and reduce overfitting (Default = 2).
+            
+            - **Minimum Samples of a Leaf:** 
+            Ensures that leaf nodes have a minimum number of samples. 
+            This prevents the model from being overly sensitive to individual data points and therefore smooth decision boundaries (Default = 1).
             ''')
 
 def plot_conclusions():
@@ -474,7 +596,8 @@ def plot_conclusions():
 def explain_metrics():
     return ('''
             In churn analysis, **accuracy** is often insufficient for evaluating model performance, particularly with imbalanced datasets where most customers do not churn. 
-            Accuracy misses the model's ability to detect the minority class (churners), which is critical. From a business perspective, false negatives (missed churners) are far more costly than false positives. 
+            Accuracy misses the model's ability to detect the minority class (churners), which is critical. 
+            From a business perspective, false negatives (missed churners) are far more costly than false positives. 
             Thus, optimizing for **recall** is key, as it ensures to capture as many churners as possible.
 
             Although an accuracy of around 90% is achieved for nearly every combination of features, 
@@ -496,8 +619,8 @@ def final_conclusions():
     return('''
             **Performance of the Random Forest Model**
                
-            Through hyperparameter tuning, an accuracy of 83%, precision of 23%, and recall of 31% have been achieved. While the accuracy seems relatively promising, 
-            the recall value is still too low to effectively identify churners and minimize the costs associated with missed churners.
+            Through hyperparameter tuning, an accuracy of 83%, precision of 23%, and recall of 31% have been achieved. 
+            While the accuracy seems relatively promising, the recall value is still too low to effectively identify churners and minimize the costs associated with missed churners.
 
             **Feature Importance**
            
@@ -513,7 +636,7 @@ def final_conclusions():
             **Error Sources**
            
             One potential source of error in the current model is the inclusion of too many features. Irrelevant features can confuse the model, leading to overfitting. 
-            To address this, a more refined feature selection should be employed—omitting features that provide redundant or overlapping information. 
+            To address this, a more refined feature selection should be employed, omitting features that provide redundant or overlapping information. 
             Additionally, creating other meaningful features could help the model focus on the most significant predictors of churn.
 
             **Alternatives**

@@ -8,9 +8,8 @@ from functions import feature_descriptions, explain_forest, explain_hyperparamet
 
 def main():
     
-    st.title("Modeling Churn")
-    
-    #st.image("../data/PowerCo.jpg", width = 300)
+    st.title("Predicting Churn")
+
     st.subheader('PowerCo')
     st.write(powerco())
 
@@ -158,10 +157,10 @@ def main():
             save_to_pickle((X_train, X_test, y_train, y_test, scaler), data_cache_path)
 
             model = train_random_forest(X_train, y_train,
-                                    n_estimators=st.session_state.hyperparameters["n_estimators"],
-                                    max_depth=st.session_state.hyperparameters["max_depth"],
-                                    min_samples_split=st.session_state.hyperparameters["min_samples_split"],
-                                    min_samples_leaf=st.session_state.hyperparameters["min_samples_leaf"])
+                                    n_estimators = st.session_state.hyperparameters["n_estimators"],
+                                    max_depth = st.session_state.hyperparameters["max_depth"],
+                                    min_samples_split = st.session_state.hyperparameters["min_samples_split"],
+                                    min_samples_leaf = st.session_state.hyperparameters["min_samples_leaf"])
 
             save_to_pickle(model, model_cache_path)
             st.session_state.prev_columns = included_columns
